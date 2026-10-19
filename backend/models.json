@@ -1,0 +1,8 @@
+{
+  "_note": "Dev stand-ins. Swap ids/interfaces for the real four models (jev, gpt-6-luna-decisions, clef = 'decisions'; claude-opus-5.5 = 'chat') once OpenRouter credit is available.",
+  "models": [
+    {"id": "mock-random", "label": "Mock Random", "interface": "mock", "category": "mock", "strategy": "random", "latency_s": 0.05, "seed": 1},
+    {"id": "mock-greedy", "label": "Mock Greedy", "interface": "mock", "category": "mock", "strategy": "greedy", "latency_s": 0.1, "seed": 2},
+    {"id": "mock-oracle", "label": "Mock Oracle", "interface": "mock", "category": "mock", "strategy": "oracle", "latency_s": 0.8, "seed": 3}
+  ]
+}

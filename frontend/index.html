@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rubik's Cube Race</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>Rubik's Cube Race</h1>
+      <span class="sub">Fast decision models vs. frontier LLM · AI Engineering, Assignment 02</span>
+    </div>
+    <div class="student" id="student" aria-label="Student identity">
+      <span id="studentName"></span><span class="dot">·</span><span id="studentRoll"></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="controls">
+      <label>Test set
+        <select id="setSelect"></select>
+      </label>
+      <label>Puzzles
+        <input id="nInput" type="number" min="1" max="50" value="5">
+      </label>
+      <label>Seed
+        <input id="seedInput" type="number" value="100">
+      </label>
+      <button id="runBtn" class="primary">Run benchmark</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <button id="slideBtn">Benchmark slide</button>
+      <span class="status" id="status">Idle</span>
+    </section>
+
+    <section class="puzzle" id="puzzleBar" hidden>
+      <span><b id="puzzleId"></b></span>
+      <span>Scramble: <code id="puzzleScramble"></code></span>
+      <span>Shortest solution: <b id="puzzleOptimal"></b> moves</span>
+      <span class="progress"><i id="progressBar"></i></span>
+      <span id="progressText"></span>
+    </section>
+
+    <section class="lanes" id="lanes"></section>
+
+    <section class="stats">
+      <h2>Benchmark statistics <small id="statsNote"></small></h2>
+      <div id="statsTable"></div>
+    </section>
+  </main>
+
+  <div class="slide" id="slide" hidden>
+    <div class="slide-head">
+      <div>
+        <h2>Benchmark results</h2>
+        <p id="slideMeta"></p>
+      </div>
+      <div class="student-slide"><span id="slideName"></span><span class="dot">·</span><span id="slideRoll"></span></div>
+      <button id="slideClose">Close</button>
+    </div>
+    <div id="slideBody"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
