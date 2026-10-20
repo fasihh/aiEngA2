@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.28.1",
     "kociemba>=1.2.1",
     "magiccube>=1.2.0",
+    "mcp<2",
     "pycuber>=0.2.2",
     "python-dotenv>=1.2.4",
     "uvicorn>=0.54.0",

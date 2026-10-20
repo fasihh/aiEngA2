@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .adapters.base import RECENT_MOVES_N
+from .adapters.base import ABORTED, MAX_CONSECUTIVE_FAILURES, RECENT_MOVES_N
 from .adapters.registry import MODELS_FILE, build_adapters
 from .cube import SOLVED
 from .engine import CubeGame, reference_solution
@@ -61,20 +61,35 @@ def run_trial(adapter, puzzle, on_event=None, max_moves=MAX_MOVES):
     base = {"model": adapter.model_id, "puzzle": puzzle["id"]}
     emit({**base, "type": "trial_start", "state": game.state, "optimal": puzzle["optimal"]})
 
-    steps, applied = [], []
-    t0 = time.perf_counter()
-    for i in range(1, max_moves + 1):
-        res = adapter.get_move(game.state, applied[-RECENT_MOVES_N:])
-        if res.move is not None:
-            game.apply(res.move)
-            applied.append(res.move)
-        step = {"step": i, "move": res.move, "valid": res.valid, "latency_s": res.latency_s,
-                "confidence": res.confidence, "retries": res.retries, "errors": res.errors,
-                "raw": res.raw, "state_after": game.state}
-        steps.append(step)
+    def on_step(step):
         emit({**base, "type": "move", **step, "solved": game.solved})
-        if game.solved:
-            break
+
+    t0 = time.perf_counter()
+    error = None
+    if adapter.is_agent:
+        # The agent drives the episode itself and reports each move as it makes it.
+        steps, applied, error = adapter.play(
+            game, max_moves, on_step, lambda text: emit({**base, "type": "agent_status", "text": text}))
+    else:
+        steps, applied, failures = [], [], 0
+        for i in range(1, max_moves + 1):
+            res = adapter.get_move(game.state, applied[-RECENT_MOVES_N:])
+            if res.move is not None:
+                game.apply(res.move)
+                applied.append(res.move)
+            step = {"step": i, "move": res.move, "valid": res.valid, "latency_s": res.latency_s,
+                    "confidence": res.confidence, "retries": res.retries, "errors": res.errors,
+                    "raw": res.raw, "state_after": game.state}
+            steps.append(step)
+            on_step(step)
+            if game.solved:
+                break
+            failures = failures + 1 if res.unavailable else 0
+            if failures >= MAX_CONSECUTIVE_FAILURES:
+                last = res.errors[-1] if res.errors else "no answer"
+                error = (f"model unavailable: {failures} consecutive steps without an answer "
+                         f"(last error: {last[:240]})")
+                break
     total = time.perf_counter() - t0
 
     solved = game.solved
@@ -90,12 +105,13 @@ def run_trial(adapter, puzzle, on_event=None, max_moves=MAX_MOVES):
         "steps_used": len(steps),
         "malformed_steps": sum(not s["valid"] for s in steps),
         "retries": sum(s["retries"] for s in steps),
-        "avg_move_latency_s": statistics.fmean(s["latency_s"] for s in steps),
+        "avg_move_latency_s": statistics.fmean(s["latency_s"] for s in steps) if steps else None,
         "total_time_s": total,
         "optimal": puzzle["optimal"],
         "optimal_is_exact": exact,
         "gap": len(applied) - puzzle["optimal"] if solved and exact else None,
         "moves": applied,
+        "error": error,
         "steps": steps,
     }
     emit({**base, "type": "trial_end", "trial": {k: v for k, v in trial.items() if k != "steps"}})
@@ -115,7 +131,7 @@ def summarize(trials):
             "trials": len(ts),
             "solved": len(solved),
             "success_rate_pct": 100 * len(solved) / len(ts),
-            "avg_move_latency_s": statistics.fmean(lat),
+            "avg_move_latency_s": statistics.fmean(lat) if lat else None,
             "avg_total_time_s": statistics.fmean(t["total_time_s"] for t in ts),
             "avg_moves": statistics.fmean(t["moves_applied"] for t in ts),
             "avg_moves_solved": statistics.fmean(t["moves_applied"] for t in solved) if solved else None,
@@ -134,7 +150,10 @@ def run_benchmark(adapters, puzzles, on_event=None, should_stop=None):
         for adapter in adapters:
             if should_stop and should_stop():
                 return trials
-            trials.append(run_trial(adapter, puzzle, on_event))
+            trial = run_trial(adapter, puzzle, on_event)
+            if trial["error"] == ABORTED:   # stopped mid-puzzle: not a real result, keep it out of the stats
+                return trials
+            trials.append(trial)
     return trials
 
 

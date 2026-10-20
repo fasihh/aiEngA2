@@ -1,12 +1,12 @@
 """OpenRouter Decisions API adapter (Jev, GPT-6 Luna Decisions, Clef).
 
-The request mirrors the example in the assignment PDF. The response schema of
-this alpha endpoint has NOT been verified yet (no API credit): `parse_response`
-is the one place to adjust once a real response has been inspected.
+The request mirrors the example in the assignment PDF. Responses were checked against
+Jev and GPT-6 Luna: answers.next_move.{choice, probabilities, confidence}. Clef is untested.
+`parse_response` is the one place to adjust if a model answers in a different shape.
 """
 import json
 
-from .base import INSTRUCTIONS, move_descriptions
+from .base import DECISION_INSTRUCTIONS, move_descriptions
 from .http_common import OPENROUTER_BASE, HttpAdapter
 
 QUESTION_KEY = "next_move"
@@ -19,7 +19,7 @@ def build_request(model_id, state, recent_moves):
         "questions": {
             QUESTION_KEY: {
                 "type": "choice",
-                "instructions": INSTRUCTIONS,
+                "instructions": DECISION_INSTRUCTIONS,
                 "criteria": move_descriptions(),
             }
         },

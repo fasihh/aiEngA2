@@ -133,6 +133,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/benchmark/stream?run_id=9999").status_code, 404)
         self.assertEqual(self.client.get("/api/runs/0042").status_code, 404)
 
+    def test_missing_claude_cli_fails_fast_with_pointer_to_docs(self):
+        (self.root / "models.json").write_text(json.dumps({"models": [
+            {"id": "cc", "label": "CC", "interface": "claude_code", "launch": "auto",
+             "claude_bin": "definitely-not-installed-claude"}]}))
+        r = self.client.post("/api/benchmark/start", json={"set": "warmup", "n": 1})
+        self.assertEqual(r.status_code, 500)
+        self.assertIn("docs/MCP.md", r.json()["detail"])
+        self.assertEqual(self.client.get("/api/benchmark/status").json()["status"], "idle")
+
     def test_missing_api_key_fails_fast(self):
         import os
         (self.root / "models.json").write_text(json.dumps({"models": [

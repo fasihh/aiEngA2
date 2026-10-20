@@ -173,10 +173,17 @@ const handlers = {
         lane.result.textContent = `Solved in ${t.moves_applied} moves (shortest ${t.optimal})${gap} · ${fmtTime(t.total_time_s)}`;
       } else {
         setBadge(lane, "Move limit reached ✗", "failed");
-        lane.result.textContent = `Not solved after ${t.steps_used} steps · ${t.malformed_steps} malformed · ${fmtTime(t.total_time_s)}`;
+        lane.result.textContent = `Not solved after ${t.steps_used} steps · ${t.malformed_steps} malformed · ${fmtTime(t.total_time_s)}` +
+          (t.error ? ` · ${t.error}` : "");
       }
     }
     refreshLiveStats();
+  },
+
+  agent_status(e) {
+    const lane = lanes[e.model];
+    if (lane) lane.meta.textContent = e.text;
+    setStatus(`${(models.find((m) => m.id === e.model) || {}).label || e.model}: ${e.text}`);
   },
 
   run_end(e) {
@@ -325,6 +332,7 @@ function delayFor(e) {
   if (e.type === "move") return e.latency_s * 1000;
   if (e.type === "trial_start") return 500;
   if (e.type === "trial_end") return 300;
+  if (e.type === "agent_status") return 0;
   return 0;
 }
 

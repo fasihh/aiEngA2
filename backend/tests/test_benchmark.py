@@ -59,11 +59,77 @@ class AdapterTests(unittest.TestCase):
         res = ChatAdapter("m", "key", client=client).get_move(SOLVED, [])
         self.assertIsNone(res.move)
 
+    def test_extract_move_tolerates_wrapping_but_never_repairs_the_move(self):
+        from backend.adapters.chat import extract_move
+        self.assertEqual(extract_move('{"move": "R\'"}'), "R'")
+        self.assertEqual(extract_move('Sure!\n```json\n{"move": "U2"}\n```'), "U2")
+        self.assertEqual(extract_move("I would turn the top face"), None)
+        self.assertEqual(extract_move('{"move": "r\'"}'), "r'")   # returned as written, then rejected by validation
+
+    def test_chat_without_structured_output_omits_response_format(self):
+        client, calls = client_returning({"choices": [{"message": {"content": 'Here: {"move": "F"}'}}]})
+        res = ChatAdapter("m", "key", client=client, structured_output=False).get_move(SOLVED, [])
+        self.assertEqual(res.move, "F")
+        self.assertNotIn("response_format", calls[0])
+
+    def test_http_error_records_what_the_server_said(self):
+        client, _ = client_returning({"error": {"message": "upstream model is down"}}, status=502)
+        res = ChatAdapter("m", "key", client=client).get_move(SOLVED, [])
+        self.assertIsNone(res.move)
+        self.assertIn("502", res.errors[0])
+        self.assertIn("upstream model is down", res.errors[0])
+
+    def test_retry_drops_move_history_after_a_refusal(self):
+        """Luna refuses a history of four identical moves; the retry without history succeeds."""
+        seen = []
+
+        def handler(request):
+            body = json.loads(request.content)
+            history = body["state"]["recent_moves"]
+            seen.append(history)
+            if history:
+                return httpx.Response(502, json={"error": {"message": 'OpenAI refused to answer question "next_move"'}})
+            return httpx.Response(200, json={"answers": {"next_move": {"choice": "R'", "confidence": 0.5}}})
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        res = DecisionsAdapter("m", "key", client=client).get_move(SOLVED, ["U", "R'", "R'", "R'", "R'"])
+        self.assertEqual(res.move, "R'")
+        self.assertEqual(res.retries, 1)
+        self.assertEqual(seen, [["U", "R'", "R'", "R'", "R'"], []])      # full history first, then none
+        self.assertTrue(any("refused" in e for e in res.errors))          # the refusal is still logged
+        self.assertIn("retrying without move history", res.errors)
+
+    def test_unavailable_flag_distinguishes_no_answer_from_wrong_answer(self):
+        down, _ = client_returning({"error": "boom"}, status=502)
+        self.assertTrue(DecisionsAdapter("m", "key", client=down).get_move(SOLVED, []).unavailable)
+        self.assertTrue(DecisionsAdapter("m", "key", client=down).get_move(SOLVED, ["U", "R"]).unavailable)  # with the retry note
+        wrong, _ = client_returning(chat_body("r'"))
+        self.assertFalse(ChatAdapter("m", "key", client=wrong).get_move(SOLVED, ["U"]).unavailable)
+
+    def test_trial_stops_after_consecutive_unavailable_steps(self):
+        down, _ = client_returning({"error": {"message": "refused"}}, status=502)
+        puzzle = make_puzzles("primary", 1, seed=41)[0]
+        t = run_trial(DecisionsAdapter("m", "key", client=down), puzzle)
+        self.assertEqual((t["steps_used"], t["malformed_steps"], t["solved"]), (3, 3, False))
+        self.assertIn("model unavailable", t["error"])
+        self.assertIn("refused", t["error"])              # the server's reason is carried into the trial
+        self.assertEqual(t["moves_applied"], 0)
+
+    def test_wrong_answers_are_not_cut_short(self):
+        """A model that answers (wrongly) keeps its full move budget; only silence ends a trial early."""
+        wrong, _ = client_returning(chat_body("r'"))
+        puzzle = make_puzzles("primary", 1, seed=42)[0]
+        t = run_trial(ChatAdapter("m", "key", client=wrong), puzzle, max_moves=6)
+        self.assertEqual((t["steps_used"], t["malformed_steps"]), (6, 6))
+        self.assertIsNone(t["error"])
+
     def test_decisions_request_shape(self):
         req = build_request("typesafe/jev-1.13", SOLVED, ["R"])
         self.assertEqual(req["state"], {"cube_facelets": SOLVED, "recent_moves": ["R"]})
         q = req["questions"]["next_move"]
         self.assertEqual(q["type"], "choice")
+        self.assertEqual(q["instructions"],
+                         "Choose the single next move most likely to progress toward the solved cube.")
         self.assertEqual(list(q["criteria"]), MOVES)
 
     def test_decisions_parse_variants(self):

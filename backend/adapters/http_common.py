@@ -3,7 +3,7 @@ import time
 
 import httpx
 
-from .base import MAX_RETRIES, TIMEOUT_S, Adapter, MoveResult, validate_move
+from .base import MAX_RETRIES, RETRY_WITHOUT_HISTORY, TIMEOUT_S, Adapter, MoveResult, validate_move
 
 OPENROUTER_BASE = "https://openrouter.ai/api"
 
@@ -26,17 +26,34 @@ class HttpAdapter(Adapter):
     def _attempt(self, state, recent_moves):
         raise NotImplementedError
 
+    @staticmethod
+    def _body_hint(exc):
+        """The server's own error text for an HTTP failure; the bare status line rarely says why."""
+        response = getattr(exc, "response", None)
+        if response is None:
+            return ""
+        try:
+            return " | server said: " + response.text.strip().replace("\n", " ")[:300]
+        except Exception:  # noqa: BLE001 - e.g. a streamed body that cannot be read
+            return ""
+
     def get_move(self, state, recent_moves):
         errors, raw, retries = [], "", 0
         t0 = time.perf_counter()
+        history = recent_moves
         for attempt in range(MAX_RETRIES + 1):
             try:
-                raw, move, conf = self._attempt(state, recent_moves)
+                raw, move, conf = self._attempt(state, history)
                 if validate_move(move):
                     return MoveResult(move, time.perf_counter() - t0, raw, True, conf, retries, errors)
                 errors.append(f"invalid move: {move!r}")
             except Exception as e:  # noqa: BLE001 - every failure is logged and counted
-                errors.append(f"{type(e).__name__}: {e}")
+                errors.append(f"{type(e).__name__}: {e}{self._body_hint(e)}")
             if attempt < MAX_RETRIES:
                 retries += 1
-        return MoveResult(None, time.perf_counter() - t0, raw, False, None, retries, errors)
+                if RETRY_WITHOUT_HISTORY and history:
+                    history = []
+                    errors.append("retrying without move history")
+        # "unavailable" = no attempt produced an answer at all (as opposed to a wrong answer)
+        unavailable = not any(e.startswith("invalid move") for e in errors)
+        return MoveResult(None, time.perf_counter() - t0, raw, False, None, retries, errors, unavailable)

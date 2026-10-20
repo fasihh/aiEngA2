@@ -2,6 +2,7 @@
 import threading
 from datetime import datetime
 
+from .adapters.claude_code import kill_all_agents
 from .adapters.registry import MODELS_FILE, build_adapters
 from .benchmark import MAX_MOVES, EventLog, make_puzzles, new_run_dir, save_results, summarize, run_benchmark
 
@@ -41,6 +42,8 @@ class RunManager:
             if self.current and self.current.status == "running":
                 raise RuntimeError("a benchmark is already running")
             adapters = build_adapters(self.models_path)  # fails fast (e.g. missing API key)
+            for a in adapters:
+                a.preflight()                            # e.g. Claude Code CLI not installed
             run_dir = new_run_dir(self.results_root)
             run = Run(run_dir.name, run_dir, set_name, n, seed)
             self.runs[run.id] = run
@@ -51,6 +54,7 @@ class RunManager:
     def stop(self):
         if self.current and self.current.status == "running":
             self.current.stop_flag.set()
+            kill_all_agents()   # end an in-progress Claude Code puzzle now, not at the next trial
             return True
         return False
 

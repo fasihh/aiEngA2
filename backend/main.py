@@ -6,6 +6,8 @@ on the server only; it is never sent to the browser.
 import asyncio
 import json
 import os
+import signal
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,6 +18,8 @@ from pydantic import BaseModel, Field
 
 from .adapters.registry import MODELS_FILE, load_model_configs
 from .benchmark import RESULTS_DIR, SETS, summarize
+from .adapters.claude_code import kill_all_agents
+from .agent_bridge import BRIDGE, MoveRequest
 from .history import describe_run, read_events, run_dirs, trials_from_events
 from .service import RunManager
 
@@ -25,14 +29,56 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 TERMINAL = {"run_end", "run_error"}
 
 
+class MoveBody(BaseModel):
+    move: str
+
+
 class StartRequest(BaseModel):
     set: str = "primary"
     n: int = Field(5, ge=1, le=50)
     seed: int = 0
 
 
+def _shutdown_agents():
+    """Kill any Claude Code we launched and release agent requests that are still waiting."""
+    if BRIDGE.active is not None:
+        BRIDGE.close(BRIDGE.active)
+    kill_all_agents()
+
+
+def _kill_agents_on_signals():
+    """Run _shutdown_agents before the existing handler of each shutdown signal.
+
+    Claude Code runs in its own process group (so Ctrl+C no longer reaches it); without this,
+    closing the terminal (SIGHUP) or a plain `kill` would leave it running. The in-flight
+    /api/agent/move requests must be released first, or the server waits on them to shut down.
+    """
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        previous = signal.getsignal(sig)
+
+        def handler(signum, frame, previous=previous):
+            _shutdown_agents()
+            if callable(previous):
+                previous(signum, frame)
+            elif previous == signal.SIG_DFL:
+                signal.signal(signum, signal.SIG_DFL)
+                signal.raise_signal(signum)
+
+        try:
+            signal.signal(sig, handler)
+        except ValueError:   # not the main thread (e.g. some test servers)
+            pass
+
+
+@asynccontextmanager
+async def lifespan(app):
+    _kill_agents_on_signals()
+    yield
+    _shutdown_agents()
+
+
 def create_app(models_path=MODELS_FILE, results_root=RESULTS_DIR):
-    app = FastAPI(title="Rubik's Cube Race")
+    app = FastAPI(title="Rubik's Cube Race", lifespan=lifespan)
     mgr = RunManager(models_path, results_root)
     results_root = Path(results_root)
 
@@ -41,6 +87,30 @@ def create_app(models_path=MODELS_FILE, results_root=RESULTS_DIR):
         """Name and roll number shown in the UI header (from STUDENT_NAME / STUDENT_ROLL_NO)."""
         return {"name": os.environ.get("STUDENT_NAME") or "SET STUDENT_NAME IN .env",
                 "roll": os.environ.get("STUDENT_ROLL_NO") or "SET STUDENT_ROLL_NO IN .env"}
+
+    @app.get("/api/agent/state")
+    def agent_state(wait: float = Query(0, ge=0, le=60), x_session_token: str | None = Header(None)):
+        """Current cube for an attached agent (used by the MCP server). Long-polls up to `wait`s for a puzzle."""
+        session = BRIDGE.find(x_session_token, wait)
+        if session is None:
+            return {"status": "waiting", "message": "No puzzle is active yet. Call this tool again."}
+        session.mark_state_read()
+        return session.snapshot()
+
+    @app.post("/api/agent/move")
+    def agent_move(body: MoveBody, x_session_token: str | None = Header(None)):
+        """Submit one move; blocks until the benchmark has validated and applied it."""
+        session = BRIDGE.find(x_session_token)
+        if session is None:
+            return {"status": "ended", "accepted": False,
+                    "message": "No puzzle is active. Call get_cube_state to wait for the next one."}
+        session.connected = True
+        session.touch()
+        req = MoveRequest(body.move)
+        session.inbox.put(req)
+        if not req.done.wait(timeout=600):
+            return {"status": "ended", "accepted": False, "message": "The benchmark did not respond in time."}
+        return req.reply
 
     @app.get("/api/models")
     def models():

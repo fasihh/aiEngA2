@@ -1,0 +1,32 @@
+{
+  "models": [
+    {
+      "id": "typesafe/jev-1.13",
+      "label": "Jev 1.13",
+      "interface": "decisions",
+      "category": "System-1 decision model"
+    },
+    {
+      "id": "openai/gpt-6-luna-decisions",
+      "label": "GPT-6 Luna Decisions",
+      "interface": "decisions",
+      "category": "System-1 decision model"
+    },
+    {
+      "id": "cloudflare/clef",
+      "label": "Cloudflare Clef",
+      "interface": "decisions",
+      "category": "System-1 decision model"
+    },
+    {
+      "id": "claude-code-opus",
+      "label": "Claude Opus (Claude Code)",
+      "interface": "claude_code",
+      "category": "Frontier LLM (agent via MCP)",
+      "launch": "auto",
+      "claude_model": "opus",
+      "effort": "medium",
+      "enabled": true
+    }
+  ]
+}

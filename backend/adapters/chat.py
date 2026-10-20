@@ -20,7 +20,31 @@ RESPONSE_FORMAT = {
 }
 
 
+def extract_move(text):
+    """Pull the "move" value out of a reply that should be {"move": "..."}.
+
+    Tolerates markdown fences or a sentence around the JSON object, because models without
+    structured-output support add them. The move value itself is never repaired: it is
+    returned exactly as written and validated strictly by the caller.
+    """
+    try:
+        return json.loads(text).get("move")
+    except (ValueError, AttributeError):
+        pass
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(text[start:end + 1]).get("move")
+        except (ValueError, AttributeError):
+            pass
+    return None
+
+
 class ChatAdapter(HttpAdapter):
+    def __init__(self, model_id, api_key, label=None, client=None, structured_output=True):
+        super().__init__(model_id, api_key, label, client)
+        self.structured_output = structured_output   # False for models/routes without json_schema support
+
     def _messages(self, state, recent_moves):
         options = "\n".join(f"- {m}: {d}" for m, d in move_descriptions().items())
         user = (
@@ -32,15 +56,10 @@ class ChatAdapter(HttpAdapter):
         return [{"role": "system", "content": INSTRUCTIONS}, {"role": "user", "content": user}]
 
     def _attempt(self, state, recent_moves):
-        r = self.client.post(
-            f"{OPENROUTER_BASE}/v1/chat/completions",
-            headers=self._headers(),
-            json={
-                "model": self.model_id,
-                "messages": self._messages(state, recent_moves),
-                "response_format": RESPONSE_FORMAT,
-            },
-        )
+        body = {"model": self.model_id, "messages": self._messages(state, recent_moves)}
+        if self.structured_output:
+            body["response_format"] = RESPONSE_FORMAT
+        r = self.client.post(f"{OPENROUTER_BASE}/v1/chat/completions", headers=self._headers(), json=body)
         r.raise_for_status()
-        raw = r.json()["choices"][0]["message"]["content"]
-        return raw, json.loads(raw).get("move"), None
+        raw = r.json()["choices"][0]["message"]["content"] or ""
+        return raw, extract_move(raw), None
