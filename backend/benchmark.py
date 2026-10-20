@@ -200,8 +200,8 @@ def main():
 
     run_dir = new_run_dir()
     events = EventLog(run_dir / "events.jsonl")
-    events({"type": "run_start", "set": args.set, "puzzles": puzzles,
-            "models": [a.model_id for a in adapters], "max_moves": MAX_MOVES})
+    events({"type": "run_start", "run_id": run_dir.name, "set": args.set, "puzzles": puzzles,
+            "models": [{"id": a.model_id, "label": a.label} for a in adapters], "max_moves": MAX_MOVES})
     try:
         trials = run_benchmark(adapters, puzzles, lambda e: (events(e), log(e)))
     finally:

@@ -79,6 +79,31 @@ class ApiTests(unittest.TestCase):
         live = self.client.get("/api/runs/0001/live-summary").json()["summary"]
         self.assertEqual(live["oracle"]["trials"], 2)
 
+    def test_recorded_run_listing_events_and_partial_summary(self):
+        self.client.post("/api/benchmark/start", json={"set": "primary", "n": 3, "seed": 5})
+        self.wait_done()
+        info = self.client.get("/api/runs").json()[0]
+        self.assertEqual((info["set"], info["n_puzzles"], info["trials"], info["replayable"]), ("primary", 3, 6, True))
+        self.assertEqual(info["models"], ["Fast", "Oracle"])
+        events = self.client.get("/api/runs/0001/events").json()
+        self.assertEqual(events[0]["type"], "run_start")
+        moves = [e for e in events if e["type"] == "move"]
+        self.assertTrue(all(e["latency_s"] >= 0 and len(e["state_after"]) == 54 for e in moves))
+        # statistics as they stood after the first 2 finished trials
+        part = self.client.get("/api/runs/0001/live-summary?upto=2").json()["summary"]
+        self.assertEqual({k: v["trials"] for k, v in part.items()}, {"fast": 1, "oracle": 1})
+        full = self.client.get("/api/runs/0001/live-summary").json()["summary"]
+        self.assertEqual(full["oracle"]["trials"], 3)
+        self.assertEqual(self.client.get("/api/runs/0007/events").status_code, 404)
+
+    def test_listing_survives_incomplete_run(self):
+        d = self.root / "results" / "0001"
+        d.mkdir(parents=True)
+        (d / "events.jsonl").write_text('{"type": "run_start", "set": "warmup", "puzzles": [{}], "models": ["m"], '
+                                        '"ts": "2026-01-01T00:00:00"}\n{"type": "move", "mod')  # truncated line
+        info = self.client.get("/api/runs").json()[0]
+        self.assertEqual((info["status"], info["models"], info["replayable"]), ("incomplete", ["m"], True))
+
     def test_resume_with_last_event_id(self):
         self.client.post("/api/benchmark/start", json={"set": "warmup", "n": 1})
         self.wait_done()
@@ -98,7 +123,10 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/benchmark/stop").json(), {"stopping": True})
         self.wait_done()
         self.assertEqual(self.client.get("/api/benchmark/status").json()["status"], "stopped")
-        self.assertEqual(self.client.get("/api/runs").json(), ["0002", "0001"])
+        listing = self.client.get("/api/runs").json()
+        self.assertEqual([r["run_id"] for r in listing], ["0002", "0001"])
+        self.assertEqual(listing[1]["status"], "finished")
+        self.assertEqual(listing[0]["status"], "stopped")
 
     def test_validation_and_missing(self):
         self.assertEqual(self.client.post("/api/benchmark/start", json={"set": "nope"}).status_code, 422)

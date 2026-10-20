@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from .adapters.registry import MODELS_FILE, load_model_configs
 from .benchmark import RESULTS_DIR, SETS, summarize
+from .history import describe_run, read_events, run_dirs, trials_from_events
 from .service import RunManager
 
 load_dotenv()
@@ -98,8 +99,13 @@ def create_app(models_path=MODELS_FILE, results_root=RESULTS_DIR):
 
     @app.get("/api/runs")
     def runs():
-        return sorted((d.name for d in results_root.iterdir() if d.is_dir() and d.name.isdigit()), reverse=True) \
-            if results_root.exists() else []
+        """Recorded runs, newest first. The run in progress (if any) is flagged as running."""
+        out = [describe_run(d) for d in run_dirs(results_root)]
+        live = mgr.current.id if mgr.current and mgr.current.status == "running" else None
+        for r in out:
+            if r["run_id"] == live:
+                r["status"], r["replayable"] = "running", False
+        return out
 
     @app.get("/api/runs/{run_id}")
     def run_results(run_id: str):
@@ -108,20 +114,31 @@ def create_app(models_path=MODELS_FILE, results_root=RESULTS_DIR):
             raise HTTPException(404, "no saved results for that run")
         return json.loads(path.read_text())
 
+    @app.get("/api/runs/{run_id}/events")
+    def run_events(run_id: str):
+        """The full recorded event log of a run, for replay in the browser."""
+        events = read_events(results_root / run_id) if run_id.isdigit() else []
+        if not events:
+            raise HTTPException(404, "no recorded events for that run")
+        return events
+
     @app.get("/api/runs/{run_id}/live-summary")
-    def live_summary(run_id: str):
-        """Stats over the trials finished so far (works while the run is in progress)."""
+    def live_summary(run_id: str, upto: int | None = Query(None, ge=0)):
+        """Stats over the first `upto` finished trials (all so far if omitted).
+
+        Works for the run in progress and for recorded runs, so replays can show
+        statistics building up exactly as they did originally.
+        """
         run = mgr.runs.get(run_id)
-        if run is None:
-            raise HTTPException(404, "no such run")
-        # trial_end events omit step detail; rebuild per-step latency from the move events.
-        steps = {}
-        for e in run.since(0):
-            if e["type"] == "move":
-                steps.setdefault((e["model"], e["puzzle"]), []).append({"latency_s": e["latency_s"]})
-        trials = [{**e["trial"], "steps": steps.get((e["model"], e["puzzle"]), [])}
-                  for e in run.since(0) if e["type"] == "trial_end"]
-        return {"run": run.info(), "summary": summarize(trials) if trials else {}}
+        if run is not None:
+            events, info = run.since(0), run.info()
+        else:
+            events = read_events(results_root / run_id) if run_id.isdigit() else []
+            info = {"run_id": run_id}
+            if not events:
+                raise HTTPException(404, "no such run")
+        trials = trials_from_events(events, upto)
+        return {"run": info, "summary": summarize(trials) if trials else {}}
 
     if FRONTEND_DIR.exists():
         app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
