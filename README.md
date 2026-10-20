@@ -2,6 +2,15 @@
 
 **AI Engineering, Assignment 02** · Fasih Hasan Khan · K230018
 
+## Demo
+
+Screen recording of the app running the benchmark, from the live run through the final statistics slide (3 min 15 s).
+Click the image to play it.
+
+[![Demo recording: the final benchmark statistics slide. Click to play.](demo/poster.png)](demo/demo.webm)
+
+Direct link: [demo/demo.webm](demo/demo.webm)
+
 ## Models compared
 
 | Slot | Model | Category | Interface |
