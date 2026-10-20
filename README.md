@@ -5,11 +5,12 @@
 ## Demo
 
 Screen recording of the app running the benchmark, from the live run through the final statistics slide (3 min 15 s).
-Click the image to play it.
 
-[![Demo recording: the final benchmark statistics slide. Click to play.](demo/poster.png)](demo/demo.webm)
+<video src="demo/demo.mp4" controls width="100%">
+  Your viewer cannot play embedded video. Open <a href="demo/demo.mp4">demo/demo.mp4</a> instead.
+</video>
 
-Direct link: [demo/demo.webm](demo/demo.webm)
+Direct link: [demo/demo.mp4](demo/demo.mp4)
 
 ## Models compared
 
