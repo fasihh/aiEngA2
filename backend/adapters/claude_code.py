@@ -6,7 +6,7 @@ limit is hit. `play()` runs one whole puzzle and reports each move as it happens
 
 launch="auto"   the backend starts `claude -p` itself with the cube MCP server attached
 launch="manual" the backend waits for you to attach your own Claude Code session
-                (see docs/MCP.md)
+                (see the README)
 """
 import atexit
 import json
@@ -104,7 +104,7 @@ class ClaudeCodeMCPAdapter(Adapter):
         if self.launch == "auto" and shutil.which(self.claude_bin) is None:
             raise RuntimeError(
                 f"Claude Code CLI not found ({self.claude_bin!r}). Install it and sign in, or set "
-                "launch to 'manual' in models.json (see docs/MCP.md).")
+                "launch to 'manual' in models.json (see the README).")
 
     # -- process ---------------------------------------------------------------
     def _command(self, config_path):
@@ -163,7 +163,7 @@ class ClaudeCodeMCPAdapter(Adapter):
                 proc, log = self._spawn(token, workdir)
                 notify("Claude Code started")
             else:
-                notify("Waiting for you to attach Claude Code (see docs/MCP.md)")
+                notify("Waiting for you to attach Claude Code (see the README)")
 
             while len(steps) < max_moves:
                 req, error = self._next_request(session, proc, log)

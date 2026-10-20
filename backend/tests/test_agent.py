@@ -204,7 +204,7 @@ class AutoLaunchTests(unittest.TestCase):
         missing = ClaudeCodeMCPAdapter("x", launch="auto", claude_bin="definitely-not-installed-claude")
         with self.assertRaises(RuntimeError) as cm:
             missing.preflight()
-        self.assertIn("docs/MCP.md", str(cm.exception))
+        self.assertIn("Claude Code CLI not found", str(cm.exception))
         ClaudeCodeMCPAdapter("x", launch="manual", claude_bin="nope").preflight()   # manual needs no CLI
         self.adapter().preflight()                                                  # fake binary exists
 

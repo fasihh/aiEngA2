@@ -139,7 +139,7 @@ class ApiTests(unittest.TestCase):
              "claude_bin": "definitely-not-installed-claude"}]}))
         r = self.client.post("/api/benchmark/start", json={"set": "warmup", "n": 1})
         self.assertEqual(r.status_code, 500)
-        self.assertIn("docs/MCP.md", r.json()["detail"])
+        self.assertIn("Claude Code CLI not found", r.json()["detail"])
         self.assertEqual(self.client.get("/api/benchmark/status").json()["status"], "idle")
 
     def test_missing_api_key_fails_fast(self):
